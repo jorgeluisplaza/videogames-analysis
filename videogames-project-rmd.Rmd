@@ -1,0 +1,214 @@
+---
+title: "Machine Learning: Videogames Project"
+author: "Jorge Plaza"
+date: "30 de abril de 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load library, include = FALSE}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(rpart)
+library(factoextra)
+```
+
+## Introduction
+
+This project employs several Machine Learning tecniques to gets results on a dataset based on videogames sales, critic scores and user scores. The main goal of the project its to find relations between different variables in the dataset. This dataset was provided by the user Rush Kirubi on kaggle, so thank to him for give the opportunity to use this data.
+
+The total dataset consist of about 16800 rows that have 16 variables. We have:
+
+- Name: Name of the videogame
+- Platform: Console of the game
+- Year_Of_Release: Year that the game come out
+- Genre: Genre of the game
+- Publisher: The company that publish the game
+- NA_Sales: Game sales in North America (In millions of units)
+- EU_Sales: Game sales in Europe (In millions of units)
+- JP_Sales: Game sales in Japan (In millions of units)
+- Other_Sales: Game sales in the rest of the world (In millions of units)
+- Global_Sales: Total sales of the game (In millions of units)
+- Critic_Score: Critic scores based on metacritic page
+- Critic_Count: Total of critics scores
+- User_Score: User scores based on metacritic
+- User_Count: Total of user scores
+- Developer: Developer of the game
+- Rating: The ESRB rating of the game
+
+## Methods and Analysis
+
+## Data Cleaning
+
+The dataset its in csv format and have too many NA values because metacritic only covers a subset of the platform. This values come directly by NA format and in "N/A" character. So for cleaning this data we use this command
+
+```{r cleaning NA, include = TRUE, message = FALSE}
+videogames <- read_csv("videogames.csv", na = c("N/A"))
+videogames <- na.omit(videogames)
+```
+
+
+## Data Exploration
+
+So for calculate the main information on the data, we use the function summary.
+
+``` {r data summary, include = TRUE}
+summary(videogames)
+```
+
+Looking closer in the data, realize that the user score columns it's in character format
+
+```{r score column, include = TRUE}
+class(videogames$User_Score)
+```
+
+So, we change the columns class to numeric
+
+```{r change score column format, include = TRUE}
+videogames$User_Score <- as.numeric(videogames$User_Score)
+```
+
+In other column, especialize in the platform variable. Think that there are too much information that doesn't really mean too much for the analysis we want. So for better approach, we are going to segment this data into the main companies of videogames that are Sony, Nintendo, Microsoft and Sega. So for this, we create the following vectors
+
+```{r main companies}
+sony <- c('PS','PS2','PS3','PS4' ,'PSP','PSV')
+microsoft<- c('PC','X360','XB','XOne')
+nintendo <- c('3DS','DS','GBA','GC','N64','Wii','WiiU')
+sega <- c('DC')
+```
+
+
+Then, we create the function to assing the companies by platform and create the new column
+
+
+```{r assigning companies}
+changePlatform <-function(x){
+  if (x %in% sony == TRUE) {return('Sony')}
+  else if(x %in% microsoft == TRUE) {return('Microsoft')}
+  else if(x %in% nintendo == TRUE) {return('Nintendo')}
+  else if(x %in% sega == TRUE) {return('Sega')}
+  else{return('Other')}
+}
+
+videogames$company <- sapply(videogames$Platform, changePlatform)
+```
+
+
+## Data Visualization
+
+In this section, we're going to see different interesting graph to analyze different aspect of the videogame industry.
+
+The first graph are the top 10 total sales by the most important publisher.
+
+``` {r ordering, include = FALSE}
+# get global sales by publisher
+sales_per_publisher <- videogames %>% group_by(Publisher) %>%
+                       summarise(ttl_sales = sum(Global_Sales)) %>%
+                       arrange(desc(ttl_sales))
+
+top10 <- sales_per_publisher[1:10,]
+top10 <- top10 %>% map_df(rev)
+top10$Publisher <- as.character(top10$Publisher)
+top10$Publisher <- factor(top10$Publisher, levels = unique(top10$Publisher))
+```
+
+
+```{r videogames by published, include = TRUE}
+top10 %>% ggplot() + 
+          geom_bar(mapping = aes(x = ttl_sales, y = Publisher, fill = Publisher)
+          ,stat = "identity") +
+          labs(x = "Total Sales", y = "Publisher") +
+          ggtitle("Top 10 Total Sales by Publisher")
+```
+
+In this graph, we can see that the most total sales are Electronic Arts, Nintendo and Activision. This first party publisher are known for the high publicity and famous games, like Battlefield series for Electronic Arts, Mario for Nintendo and Call of Duty for Activision. 
+
+The following graph, complements the first graph. In this we plot the best 10 games by global sales.
+
+``` {r best games by sale, include = TRUE}
+videogames %>% group_by(Name) %>% 
+               summarise(global_sales=sum(Global_Sales)) %>% 
+               arrange(desc(global_sales)) %>% 
+               head(15) %>% 
+               ggplot(aes(x = Name, y = global_sales, group = 1)) + 
+               geom_line(size=0.8) + 
+               geom_point(aes(col=global_sales),size=3) + 
+               scale_color_gradientn(colours = heat.colors(20)) + 
+               theme(axis.text.x = element_text(angle = 90)) +
+               labs(x = "Game", y = "Global Sales", title="Top Video games by Sales")
+```
+
+We can see clearly that the most sells games are in mayority Nintendo and Activision games. Where we confirmed that the most selling game in the history of the industry is Wii Sports from Nintendo. We can see two games from Take-Two Interactive, the famous Grand Theft Auto Series. Known as a quality serie.
+
+
+The next graph are the total games launched by each year. With colors representing the genre of games.
+
+``` {r sell by year, include = TRUE}
+videogames %>% group_by(Year_of_Release,Genre)%>% 
+               summarise(no_of_games = n()) %>% 
+               ggplot(aes(x = Year_of_Release, y = no_of_games, group = Genre, col = Genre)) + 
+               geom_point()+ 
+               geom_line() + 
+               theme(legend.position = "bottom", 
+                     axis.text.x = element_text(angle = 90), 
+                     panel.grid.minor = element_blank()) + 
+               labs(x = "Year of Release", y = "Total games", title = "Games Released in a year")
+```
+
+We can see some interesting information. In the start of the industry, by year where a poor quantity of games per year. As the industry grow more games where release. The pick of the graph was in 2009. With a huge number of games released. And because the cost of develop the games after 2009 increases (Better graphics, more expensive) the quantity of games dropped sustancially.
+
+The following graph are the Critic Score (Values 0 - 100) vs the global sales (in million of units) for each game in the dataset. The colors represent the main company in the industry.
+
+```{r global sale vs critic score, include = TRUE}
+videogames %>% ggplot(aes(Global_Sales, Critic_Score, col = company)) +
+               geom_point() +
+               labs(x = "Global Sales", y = "Critic Score") +
+               ggtitle("Critic Score vs Global Sales")
+```
+
+we can see that games that are rated with just a few point don't sell to much units but as the score increases, the games sell more units.
+
+
+The next graph are the user score (values 0 - 10) vs the critic score (0 - 100). The colors represent the main company in the industry. 
+
+```{r Critic score vs user score, include = TRUE}
+videogames %>% ggplot(aes(Critic_Score, User_Score, col = company)) + 
+               geom_point() +
+               labs(x = "Critic Score", y = "User Score") +
+               ggtitle("User Score vs Critic Score")
+```
+
+In this graph we can see a relationship between the two variables. In general, as the critic score increases the user score do it as well.
+
+
+## Modelling
+
+We're going to fit four models, Linear Regression, K-Means Clustering, Regression Tree and Random Forest. 
+
+The Linear Regression is going to predict the user score of a game based on the critic score. Is important to denote that in the industry, the critics rank the game before its released. Meaning that the user score come after the critic rank. So, this model would be useful in this case.
+
+The K-Means Clustering it's going to generate clusters on the same data, the idea it's to divide the data between very bad games, bad games, regular games, good games and excelent games. The Elbow Method it's going to use to determine the best k to this model.
+
+We're going to use Regression Tree to determine the global sales based on mutiples variables. Really simple, the hierarchical model will show.
+
+Finally, the Random Forest it's going to predict the global sale on PS3 games. This subset is because the computational power of the method. The other reason is because to year 2016 (Year of the dataset) PS3 cover all his active life and we can see the overall perfomance of the console.
+
+
+## Results
+
+## Linear model
+
+
+
+
+
+
+
+
+
+
+
