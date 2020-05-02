@@ -1,9 +1,18 @@
-library(tidyverse)
-library(caret)
-library(randomForest)
-library(rpart)
-library(factoextra)
-library(data.table)
+#library(tidyverse)
+#library(caret)
+#library(randomForest)
+#library(rpart)
+#library(factoextra)
+#library(data.table)
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+if(!require(rpart)) install.packages("rpart", repos = "http://cran.us.r-project.org")
+if(!require(factoextra)) install.packages("factoextra", repos = "http://cran.us.r-project.org")
+
+
 
 # Load data from file
 videogames <- read_csv("videogames.csv", na = c("N/A"))
