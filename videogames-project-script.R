@@ -3,6 +3,7 @@ library(caret)
 library(randomForest)
 library(rpart)
 library(factoextra)
+library(data.table)
 
 # Load data from file
 videogames <- read_csv("videogames.csv", na = c("N/A"))
@@ -17,8 +18,6 @@ class(videogames$Critic_Score)
 
 # User score as numeric (was character)
 videogames$User_Score <- as.numeric(videogames$User_Score)
-
-
 
 
 # Company by platform
@@ -39,21 +38,21 @@ changePlatform <-function(x){
 # Create new column
 videogames$company <- sapply(videogames$Platform, changePlatform)
 
-
+# Summary of the dataset
 summary(videogames)
-
-
 
 # get global sales by publisher
 sales_per_publisher <- videogames %>% group_by(Publisher) %>%
                        summarise(ttl_sales = sum(Global_Sales)) %>%
                        arrange(desc(ttl_sales))
 
+# Obtain the top 10 and sort it to the plot
 top10 <- sales_per_publisher[1:10,]
 top10 <- top10 %>% map_df(rev)
 top10$Publisher <- as.character(top10$Publisher)
 top10$Publisher <- factor(top10$Publisher, levels = unique(top10$Publisher))
 
+# Ploting the top 10 publisher based on sales
 top10 %>% ggplot() + 
           geom_bar(mapping = aes(x = ttl_sales, y = Publisher, fill = Publisher)
            ,stat = "identity") +
@@ -69,12 +68,8 @@ videogames %>% group_by(Genre) %>%
   ggplot(aes(Global_Sales, NA_Sales, col = Genre)) +
   geom_point()
 
-
+# User score vs critic score
 videogames %>% ggplot(aes(Critic_Score, User_Score, col = company)) + 
-               geom_point()
-
-
-videogames %>% ggplot(aes(Critic_Count, Critic_Score, col = company)) +
                geom_point()
 
 # Total games in a year graph
@@ -102,62 +97,89 @@ videogames %>% group_by(Name) %>%
                labs(x = "Game", y = "Global Sales", title="Top Video games by Sales")
 
 
-               
-cor(videogames$User_Score, videogames$Critic_Score)
-    
+
+# To data frame
 videogames <- as.data.frame(videogames)
-           
+
+###### SPLITTING DATA #########
+
+# Split the data 80-20
 test_index <- createDataPartition(videogames$User_Score, times = 1, p = 0.2, list = FALSE)
 
+# Train set
 train_set <- videogames[-test_index,]
+
+# Test set
 test_set <- videogames[test_index,]
 
+###### LINEAR MODEL ######
 
+# Correlation between the variables
+cor(train_set$User_Score, train_set$Critic_Score)
 
+# Linear model
 fit_lm <- lm(User_Score ~ Critic_Score, data = train_set)
 y_hat <- predict(fit_lm, test_set)
 
+# RMSE of the model
 RMSE(y_hat, test_set$User_Score)
 
+######## KMEANS #########
+
+# Select the variables
+train_kmeans <- train_set %>% select(User_Score, Critic_Score)
+
+# Fit the model with 5 clusters
+fit_kmeans <- kmeans(train_kmeans, centers = 5, nstart = 25)
+
+# Plot the clusters
+fviz_cluster(fit_kmeans, train_kmeans, labelsize = 0)
+
+# Applying the elbow
+fviz_nbclust(train_kmeans, kmeans, method = "wss")
+
+# With 10 clusters
+fit_kmeans_10 <- kmeans(train_kmeans, centers = 10, nstart = 25)
+
+# Plot 10 clusters
+fviz_cluster(fit_kmeans_10, train_kmeans, labelsize = 0)
 
 
+####### REGRESSION TREE #########
+
+# FIt the tree
+fit_reg_tree <- rpart(company ~ User_Score + 
+                        User_Count + 
+                        Critic_Count + 
+                        Global_Sales +
+                        Critic_Score +
+                        NA_Sales +
+                        JP_Sales +
+                        Other_Sales +
+                        EU_Sales, data = train_set)
+
+# Plot the tree
+plot(fit_reg_tree, margin = 0.1)
+text(fit_reg_tree, cex = 0.55)
 
 
-videogames %>% ggplot(aes(User_Count, Critic_Score, col = company)) + geom_point()
+####### RANDOM FOREST ########
 
-fit_rtree <- rpart(Genre ~ , data = videogames)
+# Obtain ps3 results
+ps3_train_set <- subset(train_set, Platform == "PS3")
+ps3_test_set <- subset(test_set, Platform == "PS3")
 
-plot(fit_rtree)
-text(fit_rtree)
+# Fit the random forest
+fit_rf <- randomForest(NA_Sales ~ User_Count +
+                         User_Score +
+                         Critic_Count +
+                         Critic_Score +
+                         Genre +
+                         Year_of_Release, data = ps3_train_set)
 
-videogames %>% ggplot(aes(Critic_Score, Global_Sales, col = company)) + geom_point()
+# Predict and calculate RMSE
+y_hat_rf <- predict(fit_rf, ps3_test_set)
+RMSE(y_hat_rf, ps3_test_set$NA_Sales)
 
-train_knn <- train(Global_Sales ~ Critic_Score + Year_of_Release, method = "knn", data = videogames)
-
-plot(train_knn)
-
-
-train(Global_Sales ~ User_Score + Critic_Score, method = "knn", data = videogames, tuneGrid = data.frame(k = seq(3, 27, 2)))
-
-
-sonySet <- subset(videogames, company == "Sony")
-
-
-fitSony <- randomForest(Global_Sales ~ Critic_Score + User_Count + User_Score + Critic_Count, data = sonySet)
-dist(videogames)
-
-demo <- videogames %>% select(User_Count, User_Score)
-dist(demo)
-fit_kmeans <- kmeans(demo, centers = 10, nstart = 25)
-fit_kmeans
-fviz_cluster(fit_kmeans, demo, labelsize = 0)
-fviz_nbclust(demo, kmeans, method = "wss")
-
-fit <- rpart(Genre ~ Critic_Score + User_Count + NA_Sales + company + Publisher + Global_Sales, data = videogames)
-fit
-
-plot(fit, margin = 0.1)
-text(fit, cex = 0.75)
-
-
-
+# Obtain the variables importance
+varImp(fit_rf)

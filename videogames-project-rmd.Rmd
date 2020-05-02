@@ -1,8 +1,10 @@
 ---
-title: "Machine Learning: Videogames Project"
+title: 'Machine Learning: Videogames Project'
 author: "Jorge Plaza"
 date: "30 de abril de 2020"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -49,6 +51,7 @@ The dataset its in csv format and have too many NA values because metacritic onl
 ```{r cleaning NA, include = TRUE, message = FALSE}
 videogames <- read_csv("videogames.csv", na = c("N/A"))
 videogames <- na.omit(videogames)
+videogames <- as.data.frame(videogames)
 ```
 
 
@@ -195,19 +198,150 @@ The K-Means Clustering it's going to generate clusters on the same data, the ide
 
 We're going to use Regression Tree to determine the global sales based on mutiples variables. Really simple, the hierarchical model will show.
 
-Finally, the Random Forest it's going to predict the global sale on PS3 games. This subset is because the computational power of the method. The other reason is because to year 2016 (Year of the dataset) PS3 cover all his active life and we can see the overall perfomance of the console.
+Finally, the Random Forest it's going to predict the NA sale on PS3 games. This subset is because the computational power of the method. The other reason is because to year 2016 (Year of the dataset) PS3 cover all his active life and we can see the overall perfomance of the console.
 
 
 ## Results
 
+First step before fit the models, we need to split the data into a training set and a test set. 
+
+``` {r split the data, include = TRUE}
+test_index <- createDataPartition(videogames$User_Score, times = 1, p = 0.2, list = FALSE)
+
+train_set <- videogames[-test_index,]
+test_set <- videogames[test_index,]
+```
+train set consists on 80% of the data and test set 20%. The splitting proportion was chosen by the number of row that we have. with approximately 6800 rows a split of 90-10 would do that the train set have very few data. And 70-30 looks like a lot of punishment on training set data. So 80-20 looks like the best split.
+
+
 ## Linear model
 
+Before we fit the linear model, we're going to analyze the correlation on the two variables
+
+```{r correlation, include = TRUE}
+cor(train_set$User_Score, train_set$Critic_Score)
+```
+
+we see a positive correlation and with really strong relation. So we proceed to fit the model 
+
+``` {r linear model, include = TRUE}
+fit_lm <- lm(User_Score ~ Critic_Score, data = train_set)
+fit_lm
+```
+
+The equation of the linear model looks like this. Remember that the values of the user score go from 0 to 10 and critic score are in the range of 0 to 100.
+
+\begin{equation}
+  userScore = 2.98 + criticScore * 0.06
+\end{equation}
+
+So, for example if the critic score results on 85 (Mario Kart 7). Calculating in the equation the estimated would be 8.08 (Real score 8.2).
+
+So now we test our model on the test data and obtained the final RMSE.
+
+```{r final linear model, include = TRUE}
+y_hat_lm <- predict(fit_lm, test_set)
+RMSE(y_hat_lm, test_set$User_Score)
+```
+
+## K-Means
+
+The idea behind the k-means is to divide the data in different clusters, in this case we're going to use the user score and the critic score data to determine clusters on the quality of games. The library used to do this is factoextra. So, first we select the variables we want to analyze and then fit the model with k = 5 (Very bad games, bad games, regular games, good games, excellent games).
+
+```{r create kmeans dataset, include = TRUE}
+train_kmeans <- train_set %>% select(User_Score, Critic_Score)
+fit_kmeans <- kmeans(train_kmeans, centers = 5, nstart = 25)
+```
+
+And plot the clusters with the following code.
+
+```{r plot clusters, include = TRUE}
+fviz_cluster(fit_kmeans, train_kmeans, labelsize = 0)
+```
+
+We can see that the cluster divide the data based on the quality of the game but on critic score. The User score have his variability on all the clusters. Now, we are going to test a better number of clusters based on elbow method
+
+```{r elbow method, include=TRUE}
+fviz_nbclust(train_kmeans, kmeans, method = "wss")
+```
+
+So basically the k converge to 10 where the error is less. So using k = 10.
+
+``` {r with ten clusters, include = TRUE}
+fit_kmeans_10 <- kmeans(train_kmeans, centers = 10, nstart = 25)
+fviz_cluster(fit_kmeans_10, train_kmeans, labelsize = 0)
+```
+
+## Regression Tree
+
+So, it would be interesting to determine wich company released a particular game based on multiple variables. In this case the Tree could be model with this simple code.
+
+```{r regression tree fit, include = TRUE}
+fit_reg_tree <- rpart(company ~ User_Score + 
+                                User_Count + 
+                                Critic_Count + 
+                                Global_Sales +
+                                Critic_Score +
+                                NA_Sales +
+                                JP_Sales +
+                                Other_Sales +
+                                EU_Sales, data = train_set)
+
+```
+
+The regression tree looks like this. 
+
+```{r plot regressio tree, include = TRUE}
+plot(fit_reg_tree, margin = 0.1)
+text(fit_reg_tree, cex = 0.55)
+```
+
+So, we can see that other sales it's on the first place and that the user and critic count are really important in the tree. The critic score and the user score doesn't matter too much. And the sales of the game are predominant.
 
 
+## Random Forest
 
+Like we mention, we're going to analyze the PS3 subset fitting a random forest algorithm.
 
+```{r subset the data}
+ps3_train_set <- subset(train_set, Platform == "PS3")
+ps3_test_set <- subset(test_set, Platform == "PS3")
+```
 
+The set have 638 and 137 observation in total. This way the random forest not going to explode our computer.
 
+``` {r fit rf} 
+fit_rf <- randomForest(NA_Sales ~ User_Count +
+                                  User_Score +
+                                  Critic_Count +
+                                  Critic_Score +
+                                  Genre +
+                                  Year_of_Release, data = ps3_train_set)
+
+```
+
+Now predicting the values and obtaining the RMSE value.
+
+```{r predict values rf}
+y_hat_rf <- predict(fit_rf, ps3_test_set)
+RMSE(y_hat_rf, ps3_test_set$NA_Sales)
+```
+
+Obtaining the variable importance. 
+
+```{r variable importance}
+varImp(fit_rf)
+```
+
+## Conclusion
+
+The linear model fit perfomance really well based on that there is just one explanatory variable in the equation. The RMSE value range over 1 to 1.2 meaning that the score predicted could be in an error of about this values. This perfomance its explained because the two variable have a strong relationship and we see it on the plot.
+
+The kmeans perfomance was good but not perfect. The data it's to close on each other with no clear clusters. The plot it's very clearly in this case. But overall we split the games quality based on critic score.
+
+The regression tree was more for testing porpuse because we don't know the sales of a game before its released, but can be really good to determine how well a main company perfomance based on the popularity on the community and the sales based on world segmentation.
+
+Finally, the random forest algorithm fit really well the perfomance of PS3 life. Really quick because of the fewer data on the dataset. And of course the use of multiples variables help the model to fit well. Importance to denote that the more important variables was the number of critics on the users side and the overall critic score impact a lot on the NA sales of a game.
 
 
 
